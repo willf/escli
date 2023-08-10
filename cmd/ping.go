@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/willf/ping/lib/client"
+	"github.com/willf/escli/lib/client"
 )
 
 // pingCmd represents the ping command
