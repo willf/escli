@@ -26,4 +26,5 @@ func ElasticClient() (es *elasticsearch.Client, err error) {
 		APIKey:                 api_key,
 	}
 	es, err = elasticsearch.NewClient(cfg)
+	return
 }
