@@ -5,23 +5,25 @@ package lib
 import (
 	// elasticsearch
 	"errors"
+	"net/url"
 
-	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/spf13/viper"
 )
 
 // ElasticClient creates an Elasticsearch client
-func ElasticClient() (es *elasticsearch.Client, err error) {
+func ElasticClient() (es *elastictransport.Client, err error) {
+
 	servers := viper.GetStringSlice("ELASTICSEARCH_SERVERS")
 	user := viper.GetString("ELASTICSEARCH_USER")
 	password := viper.GetString("ELASTICSEARCH_PASSWORD")
 	certificate_fingerprint := viper.GetString("ELASTICSEARCH_CERTIFICATE_FINGERPRINT")
 	api_key := viper.GetString("ELASTICSEARCH_API_KEY")
+	user_agent := viper.GetString("ELASTICSEARCH_USER_AGENT")
 
-	//
+	// default to local
 	if len(servers) == 0 {
-		err = errors.New("no Elasticsearch servers specified; config file must contain ELASTICSEARCH_SERVERS")
-		return
+		servers = []string{"https://localhost:9200"}
 	}
 	if user == "" {
 		err = errors.New("no Elasticsearch user specified; config file must contain ELASTICSEARCH_USER")
@@ -39,14 +41,32 @@ func ElasticClient() (es *elasticsearch.Client, err error) {
 		err = errors.New("no Elasticsearch API key specified; config file must contain ELASTICSEARCH_API_KEY")
 		return
 	}
+
+	if user_agent == "" {
+		user_agent = "escli/"
+	}
+
+	// convert servers into URLs
+
+	urls := make([]*url.URL, len(servers))
+	for i, server := range servers {
+		url, err0 := url.Parse(server)
+		if err0 != nil {
+			err = errors.New("invalid Elasticsearch server URL: " + server)
+			return
+		}
+		urls[i] = url
+	}
+
 	// create a new client
-	cfg := elasticsearch.Config{
-		Addresses:              servers,
+	cfg := elastictransport.Config{
+		URLs:                   urls,
 		Username:               user,
 		Password:               password,
 		CertificateFingerprint: certificate_fingerprint,
 		APIKey:                 api_key,
+		UserAgent:              user_agent,
 	}
-	es, err = elasticsearch.NewClient(cfg)
+	es, err = elastictransport.New(cfg)
 	return
 }

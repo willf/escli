@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/spf13/cobra"
 	"github.com/willf/escli/lib"
@@ -36,15 +37,19 @@ func init() {
 }
 
 func ping() (result PingResult) {
-	// get a client connection to the server, call lib/client.go
+
 	client, err := lib.ElasticClient()
 	if err != nil {
 		return PingResult{Ok: false, Error: err.Error()}
 	}
 	// ping the server
-	_, err = client.API.Ping()
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	res, err := client.Perform(req)
+
 	if err != nil {
 		return PingResult{Ok: false, Error: err.Error()}
 	}
+	defer res.Body.Close()
 	return PingResult{Ok: true}
 }
