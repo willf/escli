@@ -40,7 +40,7 @@ def main():
     parser.add_argument('-u', '--username', dest='username', default=None, help='Elasticsearch username')
     parser.add_argument('-P', '--password', dest='password', default=None, help='Elasticsearch password')
     parser.add_argument('-F', '--ca_fingerprint', dest='ca_fingerprint', default=None, help='CA Certificates fingerprint')
-    parser.add_argument('-c', '--config', dest='config', default=config_file, help='Configuration file (default: %s)' % config_file)
+    parser.add_argument('-c', '--config', dest='config', default=config_file, help='Configuration file (default: $HOME/.escli.yaml)')
     subparsers = parser.add_subparsers(dest='command', title='commands', description='valid commands', help='additional help')
 
     subparsers.add_parser('ping', help='ping the Elasticsearch server')
@@ -55,12 +55,9 @@ def main():
     upload_parser.add_argument('-b', '--batchsize', type=int, dest='batchsize', default=50, help='Default batch size for uploading documents')
     upload_parser.add_argument('--key', type=str, dest='key', default=None, help='key of the document to use as the document ID')
 
-    delete_parser = subparsers.add_parser('delete', help='delete a document from the Elasticsearch index')
-    delete_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
+    subparsers.add_parser('delete', help='delete documents from the Elasticsearch index')
 
-    update_parser = subparsers.add_parser('update', help='update a document in the Elasticsearch index')
-    update_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
-    update_parser.add_argument('-d', '--document', type=str, dest='document', default=None, help='set the document to update')
+    subparsers.add_parser('update', help='update/upsert documents in the Elasticsearch index')
 
     subparsers.add_parser('count', help='count the number of documents in the Elasticsearch index')
 
@@ -68,6 +65,10 @@ def main():
     mlt_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
     mlt_parser.add_argument('-m', '--max_size', type=int, dest='max_size', default=50, help='set the maximum size of the result set')
     mlt_parser.add_argument('--max_query_terms', type=int, dest='max_query_terms', default=100, help='set the maximum number of query terms that will be selected')
+
+    subparsers.add_parser('mappings', help='Add mappings to the index')
+
+    subparsers.add_parser('drop', help='Drop the index')
 
     args, remaining = parser.parse_known_args()
 
@@ -94,6 +95,10 @@ def main():
         count_command(args, remaining)
     elif args.command == 'mlt':
         mlt_command(args, remaining)
+    elif args.command == 'mappings':
+        mappings_command(args, remaining)
+    elif args.command == 'drop':
+        drop_command(args, remaining)
     else:
         parser.error('Invalid command: %s' % args.command)
 
@@ -161,7 +166,6 @@ def upload_command(options, args):
             print(jsonify({'ok': False, 'error': str(e)}))
 
 
-
 def delete_command(options, args):
     raise NotImplementedError('This function is not implemented yet')
 
@@ -197,6 +201,46 @@ def mlt_command(options, args):
         hits = hits_hits(x)
         for hit in hits:
             print(jsonify(hit['_source']))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+
+def mappings_command(options, args):
+    if options.configuration['ELASTICSEARCH_INDEX'] is None:
+        raise ValueError('Missing index')
+    index = options.configuration['ELASTICSEARCH_INDEX']
+    path = '/' + index
+    # read the mappings from stdin
+    mappings = json.loads(sys.stdin.read())
+    # does it have a 'mappings' key?
+    if 'mappings' not in mappings:
+        mappings = {'mappings': mappings}
+    # does it have a 'properties' key in the 'mappings' key?
+    if 'properties' not in mappings['mappings']:
+        raise ValueError('Missing "properties" key in "mappings"')
+    try:
+        r = es_request('put', options, path, data=jsonify(mappings))
+        x = r.json()
+        x['ok'] = r.ok
+        x['status'] = r.status_code
+        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+        print(jsonify(x))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+
+def drop_command(options, args):
+    if options.configuration['ELASTICSEARCH_INDEX'] is None:
+        raise ValueError('Missing index')
+    index = options.configuration['ELASTICSEARCH_INDEX']
+    path = '/' + index
+    try:
+        r = es_request('delete', options, path)
+        x = r.json()
+        x['ok'] = r.ok
+        x['status'] = r.status_code
+        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+        print(jsonify(x))
     except Exception as e:
         print(jsonify({'ok': False, 'error': str(e)}))
 
