@@ -14,10 +14,12 @@
 #   delete      Delete documents
 #   update      Update documents
 #   count       Count documents
+#   mlt         More Like This
 
+import argparse
 import json
-import optparse
 import os
+import sys
 import warnings
 
 import requests
@@ -27,6 +29,196 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 home_dir = os.environ['HOME']
 config_file = os.path.join(home_dir, '.escli.yaml')
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Elasticsearch command-line interface')
+    parser.add_argument('-v', '--verbose', action='store_true', dest='verbose', default=False, help='Verbose output')
+    parser.add_argument('-s', '--server', dest='server', default=None, help='Elasticsearch host (default: read from config file, or https://localhost:9200)')
+    parser.add_argument('-i', '--index', dest='index', default=None, help='Elasticsearch index')
+    parser.add_argument('-k', '--api_key', dest='api_key', default=None, help='Elasticsearch API Key')
+    parser.add_argument('-u', '--username', dest='username', default=None, help='Elasticsearch username')
+    parser.add_argument('-P', '--password', dest='password', default=None, help='Elasticsearch password')
+    parser.add_argument('-F', '--ca_fingerprint', dest='ca_fingerprint', default=None, help='CA Certificates fingerprint')
+    parser.add_argument('-c', '--config', dest='config', default=config_file, help='Configuration file (default: %s)' % config_file)
+    subparsers = parser.add_subparsers(dest='command', title='commands', description='valid commands', help='additional help')
+
+    subparsers.add_parser('ping', help='ping the Elasticsearch server')
+
+    search_parser = subparsers.add_parser('search', help='search the Elasticsearch index')
+    search_parser.add_argument('-q', '--query', type=str, dest='query', default=None, help='set the search query')
+
+    get_parser = subparsers.add_parser('get', help='get a document from the Elasticsearch index')
+    get_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
+
+    upload_parser = subparsers.add_parser('upload', help='upload documents to the Elasticsearch index')
+    upload_parser.add_argument('-b', '--batchsize', type=int, dest='batchsize', default=50, help='Default batch size for uploading documents')
+    upload_parser.add_argument('--key', type=str, dest='key', default=None, help='key of the document to use as the document ID')
+
+    delete_parser = subparsers.add_parser('delete', help='delete a document from the Elasticsearch index')
+    delete_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
+
+    update_parser = subparsers.add_parser('update', help='update a document in the Elasticsearch index')
+    update_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
+    update_parser.add_argument('-d', '--document', type=str, dest='document', default=None, help='set the document to update')
+
+    subparsers.add_parser('count', help='count the number of documents in the Elasticsearch index')
+
+    mlt_parser = subparsers.add_parser('mlt', help='More Like This')
+    mlt_parser.add_argument('-id', '--document_id', type=str, dest='document_id', default=None, help='set the document ID')
+    mlt_parser.add_argument('-m', '--max_size', type=int, dest='max_size', default=50, help='set the maximum size of the result set')
+    mlt_parser.add_argument('--max_query_terms', type=int, dest='max_query_terms', default=100, help='set the maximum number of query terms that will be selected')
+
+    args, remaining = parser.parse_known_args()
+
+    if not args.command:
+        parser.print_help()
+        parser.error('No command specified')
+
+    configuration = configure(args)
+    args.configuration = configuration
+
+    if args.command == 'ping':
+        ping_command(args, remaining)
+    elif args.command == 'search':
+        search_command(args, remaining)
+    elif args.command == 'get':
+        get_command(args, remaining)
+    elif args.command == 'upload':
+        upload_command(args, remaining)
+    elif args.command == 'delete':
+        delete_command(args, remaining)
+    elif args.command == 'update':
+        update_command(args, remaining)
+    elif args.command == 'count':
+        count_command(args, remaining)
+    elif args.command == 'mlt':
+        mlt_command(args, remaining)
+    else:
+        parser.error('Invalid command: %s' % args.command)
+
+
+def ping_command(options, args):
+    try:
+        r = es_get_request(options, '/')
+        x = r.json()
+        x['ok'] = r.ok
+        x['status'] = r.status_code
+        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+        print(jsonify(x))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+
+
+def search_command(options, args):
+    raise NotImplementedError('This function is not implemented yet')
+
+
+def get_command(options, args):
+    # accounts/#{id}
+    if options.document_id is None:
+        raise ValueError('Missing document ID')
+    path = '/' + options.configuration['ELASTICSEARCH_INDEX'] + '/_doc/' + str(options.document_id)
+    try:
+        r = es_get_request(options, path)
+        x = r.json()
+        x['ok'] = r.ok
+        x['status'] = r.status_code
+        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+        print(jsonify(x))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+
+def upload_command(options, args):
+    if options.key is None:
+        raise ValueError('Missing key')
+    if options.configuration['ELASTICSEARCH_INDEX'] is None:
+        raise ValueError('Missing index')
+    index = options.configuration['ELASTICSEARCH_INDEX']
+    for batch in read_input_in_batches(options.batchsize):
+        docs = []
+        for line in batch:
+            try:
+                doc = json.loads(line)
+                instruction = {"index":{"_index": index, "_id": doc[options.key]}}
+                docs.append(instruction)
+                docs.append(doc)
+            except Exception as e:
+                print(jsonify({'ok': False, 'error': str(e)}))
+        try:
+            r = es_request('post', options, '/_bulk', data='\n'.join([jsonify(d) for d in docs]) + '\n')
+            x = r.json()
+            items = x['items']
+            x['items_added'] = len([i for i in items if i['index']['status'] == 201 or i['index']['status'] == 200])
+            del x['items']
+            x['ok'] = r.ok
+            x['status'] = r.status_code
+            x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+            print(jsonify(x))
+        except Exception as e:
+            print(jsonify({'ok': False, 'error': str(e)}))
+
+
+
+def delete_command(options, args):
+    raise NotImplementedError('This function is not implemented yet')
+
+
+def update_command(options, args):
+    raise NotImplementedError('This function is not implemented yet')
+
+
+def count_command(options, args):
+    # accounts/_count
+    path = '/' + options.configuration['ELASTICSEARCH_INDEX'] + '/_count'
+    try:
+        r = es_get_request(options, path)
+        x = r.json()
+        x['ok'] = r.ok
+        x['status'] = r.status_code
+        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+        x = remove_anon_keys(x)
+        print(jsonify(x))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+def mlt_command(options, args):
+    if options.document_id is None:
+        raise ValueError('Missing document ID')
+    max_size = options.max_size
+    max_query_terms = options.max_query_terms
+    query = {"size": max_size, "query": {"more_like_this": {"like": [{"_index": options.configuration['ELASTICSEARCH_INDEX'], "_id": options.document_id}], "min_term_freq": 1, "max_query_terms": max_query_terms}}}
+    path = '/' + options.configuration['ELASTICSEARCH_INDEX'] + '/_search'
+    try:
+        r = es_request('post', options, path, data=jsonify(query))
+        x = r.json()
+        hits = hits_hits(x)
+        for hit in hits:
+            print(jsonify(hit['_source']))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+
+# Utility functions
+
+
+def read_input_in_batches(batch_size=50):
+    batch = []
+    for line in sys.stdin:
+        batch.append(line.strip())
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+def remove_anon_keys(d):
+    for k in list(d.keys()):
+        if k.startswith('_'):
+            del d[k]
+    return d
 
 
 def configure(options):
@@ -53,7 +245,7 @@ def configure(options):
     return config
 
 
-def es_get_request(options, path):
+def es_request(request_type, options, path, data=None):
     url = options.configuration['ELASTICSEARCH_SERVER'] + path
     headers = {}
     if options.configuration['ELASTICSEARCH_API_KEY'] is not None:
@@ -63,88 +255,30 @@ def es_get_request(options, path):
     if options.configuration['ELASTICSEARCH_CERTIFICATE_FINGERPRINT'] is not None:
         headers['X-SSL-CERTIFICATE-FINGERPRINT'] = options.configuration['ELASTICSEARCH_CERTIFICATE_FINGERPRINT']
     headers['Content-Type'] = 'application/json'
-    response = requests.get(url, headers=headers, verify=False)
-    return response
+    if request_type == 'get':
+        return requests.get(url, headers=headers, verify=False)
+    if request_type == 'post':
+        return requests.post(url, headers=headers, data=data, verify=False)
+    if request_type == 'put':
+        return requests.put(url, headers=headers, verify=False)
+    if request_type == 'delete':
+        return requests.delete(url, headers=headers, verify=False)
+    raise ValueError('Invalid request type: %s' % request_type)
+
+
+def es_get_request(options, path):
+    return es_request('get', options, path)
+
 
 def jsonify(obj):
     return json.dumps(obj, sort_keys=True)
 
-def main():
-    parser = optparse.OptionParser(usage='usage: %prog [options] <command> [command-options]')
-    parser.add_option('-v', '--verbose', action='store_true', dest='verbose', default=False, help='Verbose output')
-    parser.add_option('-s', '--server', dest='server', default=None, help='Elasticsearch host (default: read from config file, or https://localhost:9200)')
-    parser.add_option('-i', '--index', dest='index', default=None, help='Elasticsearch index')
-    parser.add_option('-k', '--api_key', dest='api_key', default=None, help='Elasticsearch API Key')
-    parser.add_option('-u', '--username', dest='username', default=None, help='Elasticsearch username')
-    parser.add_option('-P', '--password', dest='password', default=None, help='Elasticsearch password')
-    parser.add_option('-F', '--ca_fingerprint', dest='ca_fingerprint', default=None, help='CA Certificates fingerprint')
-    parser.add_option('-c', '--config', dest='config', default=config_file, help='Configuration file (default: %s)' % config_file)
 
-    (options, args) = parser.parse_args()
-
-    if len(args) < 1:
-        parser.print_help()
-        parser.error('No command specified')
-
-    command = args[0]
-    command_args = args[1:]
-
-    configuration = configure(options)
-    options.ensure_value('configuration', configuration)
-
-    if command == 'ping':
-        ping_command(options, command_args)
-    elif command == 'search':
-        search_command(options, command_args)
-    elif command == 'get':
-        get_command(options, command_args)
-    elif command == 'upload':
-        upload_command(options, command_args)
-    elif command == 'delete':
-        delete_command(options, command_args)
-    elif command == 'update':
-        update_command(options, command_args)
-    elif command == 'count':
-        count_command(options, command_args)
-    else:
-        parser.error('Invalid command: %s' % command)
-
-
-def ping_command(options, args):
-    try:
-        r = es_get_request(options, '/')
-        x = r.json()
-        x['ok'] = r.ok
-        x['status'] = r.status_code
-        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
-        print(jsonify(x))
-    except Exception as e:
-        print(jsonify({'ok': False, 'error': str(e)}))
-
-
-
-def search_command(options, args):
-    print('Searching Elasticsearch')
-
-
-def get_command(options, args):
-    print('Getting document from Elasticsearch')
-
-
-def upload_command(options, args):
-    print('Uploading document to Elasticsearch')
-
-
-def delete_command(options, args):
-    print('Deleting document from Elasticsearch')
-
-
-def update_command(options, args):
-    print('Updating document in Elasticsearch')
-
-
-def count_command(options, args):
-    print('Counting documents in Elasticsearch')
+def hits_hits(obj):
+    if 'hits' in obj:
+        if 'hits' in obj['hits']:
+            return obj['hits']['hits']
+    return obj
 
 
 if __name__ == '__main__':
