@@ -22,6 +22,7 @@
 import argparse
 import json
 import os
+import select
 import sys
 import warnings
 
@@ -96,6 +97,14 @@ def main():
         dest="query",
         default=None,
         help="set the search query",
+    )
+    search_parser.add_argument(
+        "-m",
+        "--max",
+        type=int,
+        dest="max",
+        default=50,
+        help="set the maximum size of the result set",
     )
 
     get_parser = subparsers.add_parser(
@@ -189,9 +198,9 @@ def main():
     )
     mlt_parser.add_argument(
         "-m",
-        "--max_size",
+        "--max",
         type=int,
-        dest="max_size",
+        dest="max",
         default=50,
         help="set the maximum size of the result set",
     )
@@ -253,7 +262,26 @@ def ping_command(options, args):
 
 
 def search_command(options, args):
-    raise NotImplementedError("This function is not implemented yet")
+    # accounts/_search
+    if options.query is None:
+        options.query = read_stdin()
+    if options.query is None:
+        raise ValueError("Missing query")
+    max = options.max
+    q, is_obj = safe_json_loads(options.query)
+    if not is_obj:
+        query = {"size": max, "query": {"query_string": {"query": q}}}
+    else:
+        query = {"size": max, "query": q}
+    path = "/" + options.configuration["ELASTICSEARCH_INDEX"] + "/_search"
+    try:
+        r = es_request("post", options, path, data=jsonify(query))
+        x = r.json()
+        hits = hits_hits(x)
+        for hit in hits:
+            print(jsonify(hit["_source"]))
+    except Exception as e:
+        print(jsonify({"ok": False, "error": str(e)}))
 
 
 def get_command(options, args):
@@ -406,10 +434,10 @@ def count_command(options, args):
 def mlt_command(options, args):
     if options.document_id is None:
         raise ValueError("Missing document ID")
-    max_size = options.max_size
+    max = options.max
     max_query_terms = options.max_query_terms
     query = {
-        "size": max_size,
+        "size": max,
         "query": {
             "more_like_this": {
                 "like": [
@@ -549,12 +577,33 @@ def es_request(request_type, options, path, data=None):
     raise ValueError("Invalid request type: %s" % request_type)
 
 
+def read_stdin():
+    if select.select(
+        [
+            sys.stdin,
+        ],
+        [],
+        [],
+        0.0,
+    )[0]:
+        return sys.stdin.read()
+    else:
+        return None
+
+
 def es_get_request(options, path):
     return es_request("get", options, path)
 
 
 def jsonify(obj):
     return json.dumps(obj, sort_keys=True)
+
+
+def safe_json_loads(obj):
+    try:
+        return json.loads(obj), True
+    except:
+        return obj, False
 
 
 def hits_hits(obj):
