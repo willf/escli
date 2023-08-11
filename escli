@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 # escli is a command line tool for interacting with Elasticsearch.
-# It is written in Python
+# Only some of the Elasticsearch API is implemented.
+# dealing with documents and search
 #
 # Usage:
 # escli [options] <command> [command-options]
@@ -10,7 +11,7 @@
 #   ping        Ping the cluster
 #   search      Search for documents in the cluster
 #   get         Get a document by id
-#   upload      Index document
+#   add         Index documents
 #   delete      Delete documents
 #   update      Update documents
 #   count       Count documents
@@ -109,18 +110,18 @@ def main():
         help="set the document ID",
     )
 
-    upload_parser = subparsers.add_parser(
-        "upload", help="upload documents to the Elasticsearch index"
+    add_parser = subparsers.add_parser(
+        "add", help="add documents to the Elasticsearch index"
     )
-    upload_parser.add_argument(
+    add_parser.add_argument(
         "-b",
         "--batchsize",
         type=int,
         dest="batchsize",
         default=100,
-        help="Default batch size for uploading documents",
+        help="Default batch size for adding documents",
     )
-    upload_parser.add_argument(
+    add_parser.add_argument(
         "--key",
         type=str,
         dest="key",
@@ -128,12 +129,49 @@ def main():
         help="key of the document to use as the document ID",
     )
 
-    subparsers.add_parser(
+    delete_parser = subparsers.add_parser(
         "delete", help="delete documents from the Elasticsearch index"
     )
+    delete_parser.add_argument(
+        "-b",
+        "--batchsize",
+        type=int,
+        dest="batchsize",
+        default=100,
+        help="Default batch size for deleting documents",
+    )
+    delete_parser.add_argument(
+        "--key",
+        type=str,
+        dest="key",
+        default=None,
+        help="key of the document to use as the document ID (optional; if not specified, the document ID is the document itself)",
+    )
 
-    subparsers.add_parser(
+    update_parser = subparsers.add_parser(
         "update", help="update/upsert documents in the Elasticsearch index"
+    )
+    update_parser.add_argument(
+        "-b",
+        "--batchsize",
+        type=int,
+        dest="batchsize",
+        default=100,
+        help="Default batch size for updating documents",
+    )
+    update_parser.add_argument(
+        "--key",
+        type=str,
+        dest="key",
+        default=None,
+        help="key of the document to use as the document ID",
+    )
+    update_parser.add_argument(
+        "--upsert",
+        action="store_true",
+        dest="upsert",
+        default=False,
+        help="upsert documents",
     )
 
     subparsers.add_parser(
@@ -184,8 +222,8 @@ def main():
         search_command(args, remaining)
     elif args.command == "get":
         get_command(args, remaining)
-    elif args.command == "upload":
-        upload_command(args, remaining)
+    elif args.command == "add":
+        add_command(args, remaining)
     elif args.command == "delete":
         delete_command(args, remaining)
     elif args.command == "update":
@@ -239,7 +277,7 @@ def get_command(options, args):
         print(jsonify({"ok": False, "error": str(e)}))
 
 
-def upload_command(options, args):
+def add_command(options, args):
     if options.key is None:
         raise ValueError("Missing key")
     if options.configuration["ELASTICSEARCH_INDEX"] is None:
@@ -264,13 +302,7 @@ def upload_command(options, args):
             )
             x = r.json()
             items = x["items"]
-            x["items_added"] = len(
-                [
-                    i
-                    for i in items
-                    if i["index"]["status"] == 201 or i["index"]["status"] == 200
-                ]
-            )
+            x["items_added"] = len(successfully_added_items(items))
             del x["items"]
             x["ok"] = r.ok
             x["status"] = r.status_code
@@ -281,11 +313,79 @@ def upload_command(options, args):
 
 
 def delete_command(options, args):
-    raise NotImplementedError("This function is not implemented yet")
+    if options.configuration["ELASTICSEARCH_INDEX"] is None:
+        raise ValueError("Missing index")
+    index = options.configuration["ELASTICSEARCH_INDEX"]
+    for batch in read_input_in_batches(options.batchsize):
+        docs = []
+        for line in batch:
+            try:
+                doc = json.loads(line)
+                if type(doc) is not dict:
+                    instruction = {"delete": {"_index": index, "_id": doc}}
+                else:
+                    key = options.key
+                    if key is None:
+                        raise ValueError("Missing key")
+                    instruction = {"delete": {"_index": index, "_id": doc[key]}}
+                docs.append(instruction)
+            except Exception as e:
+                print(jsonify({"ok": False, "error": str(e)}))
+        try:
+            r = es_request(
+                "post",
+                options,
+                "/_bulk",
+                data="\n".join([jsonify(d) for d in docs]) + "\n",
+            )
+            x = r.json()
+            items = x["items"]
+            x["items_deleted"] = len(successfully_deleted_items(items))
+            del x["items"]
+            x["ok"] = r.ok
+            x["status"] = r.status_code
+            x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+            print(jsonify(x))
+        except Exception as e:
+            print(jsonify({"ok": False, "error": str(e)}))
 
 
 def update_command(options, args):
-    raise NotImplementedError("This function is not implemented yet")
+    if options.key is None:
+        raise ValueError("Missing key")
+    if options.configuration["ELASTICSEARCH_INDEX"] is None:
+        raise ValueError("Missing index")
+    index = options.configuration["ELASTICSEARCH_INDEX"]
+    for batch in read_input_in_batches(options.batchsize):
+        docs = []
+        for line in batch:
+            try:
+                doc = json.loads(line)
+                instruction = {"update": {"_index": index, "_id": doc[options.key]}}
+                docs.append(instruction)
+                doc = {"doc": doc}
+                if options.upsert:
+                    doc["doc_as_upsert"] = True
+                docs.append(doc)
+            except Exception as e:
+                print(jsonify({"ok": False, "error": str(e)}))
+        try:
+            r = es_request(
+                "post",
+                options,
+                "/_bulk",
+                data="\n".join([jsonify(d) for d in docs]) + "\n",
+            )
+            x = r.json()
+            items = x["items"]
+            x["items_updated"] = len(successfully_updated_items(items))
+            del x["items"]
+            x["ok"] = r.ok
+            x["status"] = r.status_code
+            x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+            print(jsonify(x))
+        except Exception as e:
+            print(jsonify({"ok": False, "error": str(e)}))
 
 
 def count_command(options, args):
@@ -462,6 +562,22 @@ def hits_hits(obj):
         if "hits" in obj["hits"]:
             return obj["hits"]["hits"]
     return obj
+
+
+def successfully_indexed_items(items, key):
+    return [i for i in items if i.get(key, {}).get("status") in (200, 201)]
+
+
+def successfully_added_items(items):
+    return successfully_indexed_items(items, "index")
+
+
+def successfully_deleted_items(items):
+    return successfully_indexed_items(items, "delete")
+
+
+def successfully_updated_items(items):
+    return successfully_indexed_items(items, "update")
 
 
 if __name__ == "__main__":
