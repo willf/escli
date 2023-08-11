@@ -25,22 +25,22 @@ func ElasticClient() (es *elastictransport.Client, err error) {
 	if len(servers) == 0 {
 		servers = []string{"https://localhost:9200"}
 	}
-	if user == "" {
-		err = errors.New("no Elasticsearch user specified; config file must contain ELASTICSEARCH_USER")
-		return
-	}
-	if password == "" {
-		err = errors.New("no Elasticsearch password specified; config file must contain ELASTICSEARCH_PASSWORD")
-		return
-	}
-	if certificate_fingerprint == "" {
-		err = errors.New("no Elasticsearch certificate fingerprint specified; config file must contain ELASTICSEARCH_CERTIFICATE_FINGERPRINT")
-		return
-	}
-	if api_key == "" {
-		err = errors.New("no Elasticsearch API key specified; config file must contain ELASTICSEARCH_API_KEY")
-		return
-	}
+	// if user == "" {
+	// 	err = errors.New("no Elasticsearch user specified; config file must contain ELASTICSEARCH_USER")
+	// 	return
+	// }
+	// if password == "" {
+	// 	err = errors.New("no Elasticsearch password specified; config file must contain ELASTICSEARCH_PASSWORD")
+	// 	return
+	// }
+	// if certificate_fingerprint == "" {
+	// 	err = errors.New("no Elasticsearch certificate fingerprint specified; config file must contain ELASTICSEARCH_CERTIFICATE_FINGERPRINT")
+	// 	return
+	// }
+	// if api_key == "" {
+	// 	err = errors.New("no Elasticsearch API key specified; config file must contain ELASTICSEARCH_API_KEY")
+	// 	return
+	// }
 
 	if user_agent == "" {
 		user_agent = "escli/"

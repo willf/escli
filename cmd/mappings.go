@@ -85,7 +85,7 @@ func createMappings() (mappingResult MappingResult) {
 		return
 	}
 
-	req, err := http.NewRequest("PUT", "/", bytes.NewBuffer([]byte(mappings)))
+	req, err := http.NewRequest("PUT", "/"+index, bytes.NewBuffer([]byte(mappings)))
 
 	if err != nil {
 		mappingResult.Ok = false
