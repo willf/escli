@@ -1,0 +1,151 @@
+#!/usr/bin/env python
+
+# escli is a command line tool for interacting with Elasticsearch.
+# It is written in Python
+#
+# Usage:
+# escli [options] <command> [command-options]
+#
+# Commands:
+#   ping        Ping the cluster
+#   search      Search for documents in the cluster
+#   get         Get a document by id
+#   upload      Index document
+#   delete      Delete documents
+#   update      Update documents
+#   count       Count documents
+
+import json
+import optparse
+import os
+import warnings
+
+import requests
+import yaml
+
+warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
+home_dir = os.environ['HOME']
+config_file = os.path.join(home_dir, '.escli.yaml')
+
+
+def configure(options):
+    config = {}
+    if options.config is not None:
+        config_file = options.config
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                config = yaml.safe_load(f)
+    if options.server is not None:
+        config['ELASTICSEARCH_SERVER'] = options.server
+    if config['ELASTICSEARCH_SERVER'] is None:
+        config['ELASTICSEARCH_SERVER'] = 'https://localhost:9200'
+    if options.index is not None:
+        config['ELASTICSEARCH_INDEX'] = options.index
+    if options.api_key is not None:
+        config['ELASTICSEARCH_API_KEY'] = options.api_key
+    if options.username is not None:
+        config['ELASTICSEARCH_USER'] = options.username
+    if options.password is not None:
+        config['ELASTICSEARCH_PASSWORD'] = options.password
+    if options.ca_fingerprint is not None:
+        config['ELASTICSEARCH_CERTIFICATE_FINGERPRINT'] = options.ca_fingerprint
+    return config
+
+
+def es_get_request(options, path):
+    url = options.configuration['ELASTICSEARCH_SERVER'] + path
+    headers = {}
+    if options.configuration['ELASTICSEARCH_API_KEY'] is not None:
+        headers['Authorization'] = 'ApiKey ' + options.configuration['ELASTICSEARCH_API_KEY']
+    elif options.configuration['ELASTICSEARCH_USER'] is not None:
+        headers['Authorization'] = 'Basic ' + options.configuration['ELASTICSEARCH_USER'] + ':' + options.configuration['ELASTICSEARCH_PASSWORD']
+    if options.configuration['ELASTICSEARCH_CERTIFICATE_FINGERPRINT'] is not None:
+        headers['X-SSL-CERTIFICATE-FINGERPRINT'] = options.configuration['ELASTICSEARCH_CERTIFICATE_FINGERPRINT']
+    headers['Content-Type'] = 'application/json'
+    response = requests.get(url, headers=headers, verify=False)
+    return response
+
+def jsonify(obj):
+    return json.dumps(obj, sort_keys=True)
+
+def main():
+    parser = optparse.OptionParser(usage='usage: %prog [options] <command> [command-options]')
+    parser.add_option('-v', '--verbose', action='store_true', dest='verbose', default=False, help='Verbose output')
+    parser.add_option('-s', '--server', dest='server', default=None, help='Elasticsearch host (default: read from config file, or https://localhost:9200)')
+    parser.add_option('-i', '--index', dest='index', default=None, help='Elasticsearch index')
+    parser.add_option('-k', '--api_key', dest='api_key', default=None, help='Elasticsearch API Key')
+    parser.add_option('-u', '--username', dest='username', default=None, help='Elasticsearch username')
+    parser.add_option('-P', '--password', dest='password', default=None, help='Elasticsearch password')
+    parser.add_option('-F', '--ca_fingerprint', dest='ca_fingerprint', default=None, help='CA Certificates fingerprint')
+    parser.add_option('-c', '--config', dest='config', default=config_file, help='Configuration file (default: %s)' % config_file)
+
+    (options, args) = parser.parse_args()
+
+    if len(args) < 1:
+        parser.print_help()
+        parser.error('No command specified')
+
+    command = args[0]
+    command_args = args[1:]
+
+    configuration = configure(options)
+    options.ensure_value('configuration', configuration)
+
+    if command == 'ping':
+        ping_command(options, command_args)
+    elif command == 'search':
+        search_command(options, command_args)
+    elif command == 'get':
+        get_command(options, command_args)
+    elif command == 'upload':
+        upload_command(options, command_args)
+    elif command == 'delete':
+        delete_command(options, command_args)
+    elif command == 'update':
+        update_command(options, command_args)
+    elif command == 'count':
+        count_command(options, command_args)
+    else:
+        parser.error('Invalid command: %s' % command)
+
+
+def ping_command(options, args):
+    try:
+        r = es_get_request(options, '/')
+        x = r.json()
+        x['ok'] = r.ok
+        x['status'] = r.status_code
+        x['server'] = options.configuration['ELASTICSEARCH_SERVER']
+        print(jsonify(x))
+    except Exception as e:
+        print(jsonify({'ok': False, 'error': str(e)}))
+
+
+
+def search_command(options, args):
+    print('Searching Elasticsearch')
+
+
+def get_command(options, args):
+    print('Getting document from Elasticsearch')
+
+
+def upload_command(options, args):
+    print('Uploading document to Elasticsearch')
+
+
+def delete_command(options, args):
+    print('Deleting document from Elasticsearch')
+
+
+def update_command(options, args):
+    print('Updating document in Elasticsearch')
+
+
+def count_command(options, args):
+    print('Counting documents in Elasticsearch')
+
+
+if __name__ == '__main__':
+    main()
