@@ -117,7 +117,7 @@ def main():
         "--batchsize",
         type=int,
         dest="batchsize",
-        default=50,
+        default=100,
         help="Default batch size for uploading documents",
     )
     upload_parser.add_argument(
@@ -377,7 +377,7 @@ def drop_command(options, args):
 # Utility functions
 
 
-def read_input_in_batches(batch_size=50):
+def read_input_in_batches(batch_size=100):
     batch = []
     for line in sys.stdin:
         batch.append(line.strip())
