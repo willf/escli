@@ -602,7 +602,7 @@ def jsonify(obj):
 def safe_json_loads(obj):
     try:
         return json.loads(obj), True
-    except:
+    except json.JSONDecodeError:
         return obj, False
 
 
