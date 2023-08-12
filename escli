@@ -18,6 +18,7 @@
 #   mlt         More Like This
 #   mappings    Add mappings to the index
 #   drop        Drop the index
+#   create      Create an index
 
 import argparse
 import json
@@ -214,7 +215,9 @@ def main():
 
     subparsers.add_parser("mappings", help="Add mappings to the index")
 
-    subparsers.add_parser("drop", help="Drop the index")
+    subparsers.add_parser("drop", help="Drop an index")
+
+    subparsers.add_parser("create", help="Create an index")
 
     args, remaining = parser.parse_known_args()
 
@@ -245,6 +248,8 @@ def main():
         mappings_command(args, remaining)
     elif args.command == "drop":
         drop_command(args, remaining)
+    elif args.command == "create":
+        create_command(args, remaining)
     else:
         parser.error("Invalid command: %s" % args.command)
 
@@ -493,6 +498,23 @@ def drop_command(options, args):
     path = "/" + index
     try:
         r = es_request("delete", options, path)
+        x = r.json()
+        x["ok"] = r.ok
+        x["status"] = r.status_code
+        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["index"] = index
+        print(jsonify(x))
+    except Exception as e:
+        print(jsonify({"ok": False, "error": str(e)}))
+
+
+def create_command(options, args):
+    if options.configuration["ELASTICSEARCH_INDEX"] is None:
+        raise ValueError("Missing index")
+    index = options.configuration["ELASTICSEARCH_INDEX"]
+    path = "/" + index
+    try:
+        r = es_request("put", options, path)
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
