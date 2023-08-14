@@ -255,6 +255,25 @@ def main():
 
 
 def ping_command(options, args):
+    """
+    Sends a ping request to the Elasticsearch server and prints the response.
+
+    Args:
+        options (argparse.Namespace): The command-line options.
+        args (list): The command-line arguments.
+
+    Returns:
+        A JSON object with the status of the server, or an error message.
+        The `ok` key is `True` if the server is up, `False` otherwise.
+
+    Raises:
+        None
+
+    Examples:
+        To ping the Elasticsearch server:
+        >>> ping_command(options, [])
+
+    """
     try:
         r = es_get_request(options, "/")
         x = r.json()
@@ -600,6 +619,20 @@ def es_request(request_type, options, path, data=None):
 
 
 def read_stdin():
+    """
+    Reads data from standard input (stdin) if available.
+
+    Returns:
+        str or None: The data read from stdin, or None if no data is available.
+
+    Examples:
+        To read data from stdin:
+        >>> data = read_stdin()
+        >>> if data is not None:
+        ...     print("Data read from stdin:", data)
+        ... else:
+        ...     print("No data waiting on stdin")
+    """
     if select.select(
         [
             sys.stdin,
@@ -622,6 +655,16 @@ def jsonify(obj):
 
 
 def safe_json_loads(obj):
+    """
+    Safely loads a JSON string into a Python object.
+
+    Args:
+        obj (str): The JSON string to load.
+
+    Returns:
+        tuple: A tuple containing the loaded Python object and a boolean indicating if the JSON string was valid.
+
+    """
     try:
         return json.loads(obj), True
     except json.JSONDecodeError:
@@ -629,6 +672,16 @@ def safe_json_loads(obj):
 
 
 def hits_hits(obj):
+    """
+    Extracts the "hits" list from an Elasticsearch response object.
+
+    Args:
+        obj (dict): The Elasticsearch response object.
+
+    Returns:
+        list or dict: The "hits" list, or the original object if it does not contain a "hits" list.
+
+    """
     if "hits" in obj:
         if "hits" in obj["hits"]:
             return obj["hits"]["hits"]
@@ -636,18 +689,59 @@ def hits_hits(obj):
 
 
 def successfully_indexed_items(items, key):
+    """
+    Filters a list of Elasticsearch response objects to include only those that were successfully indexed.
+
+    Args:
+        items (list): The list of Elasticsearch response objects.
+        key (str): The key to use to check the status of each object.
+
+    Returns:
+        list: The list of successfully indexed objects.
+
+    """
     return [i for i in items if i.get(key, {}).get("status") in (200, 201)]
 
 
 def successfully_added_items(items):
+    """
+    Filters a list of Elasticsearch response objects to include only those that were successfully added.
+
+    Args:
+        items (list): The list of Elasticsearch response objects.
+
+    Returns:
+        list: The list of successfully added objects.
+
+    """
     return successfully_indexed_items(items, "index")
 
 
 def successfully_deleted_items(items):
+    """
+    Filters a list of Elasticsearch response objects to include only those that were successfully deleted.
+
+    Args:
+        items (list): The list of Elasticsearch response objects.
+
+    Returns:
+        list: The list of successfully deleted objects.
+
+    """
     return successfully_indexed_items(items, "delete")
 
 
 def successfully_updated_items(items):
+    """
+    Filters a list of Elasticsearch response objects to include only those that were successfully updated.
+
+    Args:
+        items (list): The list of Elasticsearch response objects.
+
+    Returns:
+        list: The list of successfully updated objects.
+
+    """
     return successfully_indexed_items(items, "update")
 
 
