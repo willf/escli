@@ -322,11 +322,7 @@ def get_command(options, args):
         + str(options.document_id)
     )
     try:
-        r = es_get_request(options, path)
-        x = r.json()
-        x["ok"] = r.ok
-        x["status"] = r.status_code
-        x["server"] = get_server_name(options)[1]
+        x = es_get_request(options, path)
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
