@@ -303,8 +303,7 @@ def search_command(options, args):
         query = {"size": max, "query": q}
     path = "/" + index + "/_search"
     try:
-        r = es_request("post", options, path, data=jsonify(query))
-        x = r.json()
+        x = es_request("post", options, path, data=jsonify(query))
         hits = hits_hits(x)
         for hit in hits:
             print(jsonify(hit["_source"]))
@@ -355,19 +354,15 @@ def add_command(options, args):
             except Exception as e:
                 print(jsonify({"ok": False, "error": str(e)}))
         try:
-            r = es_request(
+            x = es_request(
                 "post",
                 options,
                 "/_bulk",
                 data="\n".join([jsonify(d) for d in docs]) + "\n",
             )
-            x = r.json()
             items = x["items"]
             x["items_added"] = len(successfully_added_items(items))
             del x["items"]
-            x["ok"] = r.ok
-            x["status"] = r.status_code
-            x["server"] = get_server_name(options)[1]
             print(jsonify(x))
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
@@ -394,19 +389,15 @@ def delete_command(options, args):
             except Exception as e:
                 print(jsonify({"ok": False, "error": str(e)}))
         try:
-            r = es_request(
+            x = es_request(
                 "post",
                 options,
                 "/_bulk",
                 data="\n".join([jsonify(d) for d in docs]) + "\n",
             )
-            x = r.json()
             items = x["items"]
             x["items_deleted"] = len(successfully_deleted_items(items))
             del x["items"]
-            x["ok"] = r.ok
-            x["status"] = r.status_code
-            x["server"] = get_server_name(options)[1]
             print(jsonify(x))
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
@@ -433,19 +424,15 @@ def update_command(options, args):
             except Exception as e:
                 print(jsonify({"ok": False, "error": str(e)}))
         try:
-            r = es_request(
+            x = es_request(
                 "post",
                 options,
                 "/_bulk",
                 data="\n".join([jsonify(d) for d in docs]) + "\n",
             )
-            x = r.json()
             items = x["items"]
             x["items_updated"] = len(successfully_updated_items(items))
             del x["items"]
-            x["ok"] = r.ok
-            x["status"] = r.status_code
-            x["server"] = get_server_name(options)[1]
             print(jsonify(x))
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
@@ -459,11 +446,7 @@ def count_command(options, args):
         return
     path = "/" + index + "/_count"
     try:
-        r = es_get_request(options, path)
-        x = r.json()
-        x["ok"] = r.ok
-        x["status"] = r.status_code
-        x["server"] = get_server_name(options)[1]
+        x = es_get_request(options, path)
         x = remove_anon_keys(x)
         print(jsonify(x))
     except Exception as e:
@@ -496,8 +479,7 @@ def mlt_command(options, args):
     }
     path = "/" + index + "/_search"
     try:
-        r = es_request("post", options, path, data=jsonify(query))
-        x = r.json()
+        x = es_request("post", options, path, data=jsonify(query))
         hits = hits_hits(x)
         for hit in hits:
             print(jsonify(hit["_source"]))
@@ -520,11 +502,7 @@ def mappings_command(options, args):
     if "properties" not in mappings["mappings"]:
         raise ValueError('Missing "properties" key in "mappings"')
     try:
-        r = es_request("put", options, path, data=jsonify(mappings))
-        x = r.json()
-        x["ok"] = r.ok
-        x["status"] = r.status_code
-        x["server"] = get_server_name(options)[1]
+        x = es_request("put", options, path, data=jsonify(mappings))
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
@@ -537,11 +515,7 @@ def drop_command(options, args):
         return
     path = "/" + index
     try:
-        r = es_request("delete", options, path)
-        x = r.json()
-        x["ok"] = r.ok
-        x["status"] = r.status_code
-        x["server"] = get_server_name(options)[1]
+        x = es_request("delete", options, path)
         x["index"] = index
         print(jsonify(x))
     except Exception as e:
@@ -555,11 +529,7 @@ def create_command(options, args):
         return
     path = "/" + index
     try:
-        r = es_request("put", options, path)
-        x = r.json()
-        x["ok"] = r.ok
-        x["status"] = r.status_code
-        x["server"] = get_server_name(options)[1]
+        x = es_request("put", options, path)
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
@@ -611,6 +581,15 @@ def configure(options):
 
 
 def es_request(request_type, options, path, data=None):
+    result = es_request_low_level(request_type, options, path, data)
+    x = result.json()
+    x["ok"] = result.ok
+    x["status"] = result.status_code
+    x["server"] = get_server_name(options)[1]
+    return x
+
+
+def es_request_low_level(request_type, options, path, data):
     ok, server = get_server_name(options)
     if not ok:
         raise ValueError("No server specified")
