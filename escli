@@ -279,13 +279,17 @@ def ping_command(options, args):
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
-        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["server"] = get_server_name(options)[1]
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
 
 
 def search_command(options, args):
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     # accounts/_search
     if options.query is None:
         options.query = read_stdin()
@@ -297,7 +301,7 @@ def search_command(options, args):
         query = {"size": max, "query": {"query_string": {"query": q}}}
     else:
         query = {"size": max, "query": q}
-    path = "/" + options.configuration["ELASTICSEARCH_INDEX"] + "/_search"
+    path = "/" + index + "/_search"
     try:
         r = es_request("post", options, path, data=jsonify(query))
         x = r.json()
@@ -310,11 +314,15 @@ def search_command(options, args):
 
 def get_command(options, args):
     # accounts/#{id}
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     if options.document_id is None:
         raise ValueError("Missing document ID")
     path = (
         "/"
-        + options.configuration["ELASTICSEARCH_INDEX"]
+        + index
         + "/_doc/"
         + str(options.document_id)
     )
@@ -323,18 +331,19 @@ def get_command(options, args):
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
-        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["server"] = get_server_name(options)[1]
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
 
 
 def add_command(options, args):
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     if options.key is None:
         raise ValueError("Missing key")
-    if options.configuration["ELASTICSEARCH_INDEX"] is None:
-        raise ValueError("Missing index")
-    index = options.configuration["ELASTICSEARCH_INDEX"]
     for batch in read_input_in_batches(options.batchsize):
         docs = []
         for line in batch:
@@ -358,16 +367,17 @@ def add_command(options, args):
             del x["items"]
             x["ok"] = r.ok
             x["status"] = r.status_code
-            x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+            x["server"] = get_server_name(options)[1]
             print(jsonify(x))
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
 
 
 def delete_command(options, args):
-    if options.configuration["ELASTICSEARCH_INDEX"] is None:
-        raise ValueError("Missing index")
-    index = options.configuration["ELASTICSEARCH_INDEX"]
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     for batch in read_input_in_batches(options.batchsize):
         docs = []
         for line in batch:
@@ -396,7 +406,7 @@ def delete_command(options, args):
             del x["items"]
             x["ok"] = r.ok
             x["status"] = r.status_code
-            x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+            x["server"] = get_server_name(options)[1]
             print(jsonify(x))
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
@@ -405,9 +415,10 @@ def delete_command(options, args):
 def update_command(options, args):
     if options.key is None:
         raise ValueError("Missing key")
-    if options.configuration["ELASTICSEARCH_INDEX"] is None:
-        raise ValueError("Missing index")
-    index = options.configuration["ELASTICSEARCH_INDEX"]
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     for batch in read_input_in_batches(options.batchsize):
         docs = []
         for line in batch:
@@ -434,7 +445,7 @@ def update_command(options, args):
             del x["items"]
             x["ok"] = r.ok
             x["status"] = r.status_code
-            x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+            x["server"] = get_server_name(options)[1]
             print(jsonify(x))
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
@@ -442,13 +453,17 @@ def update_command(options, args):
 
 def count_command(options, args):
     # accounts/_count
-    path = "/" + options.configuration["ELASTICSEARCH_INDEX"] + "/_count"
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
+    path = "/" + index + "/_count"
     try:
         r = es_get_request(options, path)
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
-        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["server"] = get_server_name(options)[1]
         x = remove_anon_keys(x)
         print(jsonify(x))
     except Exception as e:
@@ -456,6 +471,10 @@ def count_command(options, args):
 
 
 def mlt_command(options, args):
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     if options.document_id is None:
         raise ValueError("Missing document ID")
     max = options.max
@@ -466,7 +485,7 @@ def mlt_command(options, args):
             "more_like_this": {
                 "like": [
                     {
-                        "_index": options.configuration["ELASTICSEARCH_INDEX"],
+                        "_index": index,
                         "_id": options.document_id,
                     }
                 ],
@@ -475,7 +494,7 @@ def mlt_command(options, args):
             }
         },
     }
-    path = "/" + options.configuration["ELASTICSEARCH_INDEX"] + "/_search"
+    path = "/" + index + "/_search"
     try:
         r = es_request("post", options, path, data=jsonify(query))
         x = r.json()
@@ -487,9 +506,10 @@ def mlt_command(options, args):
 
 
 def mappings_command(options, args):
-    if options.configuration["ELASTICSEARCH_INDEX"] is None:
-        raise ValueError("Missing index")
-    index = options.configuration["ELASTICSEARCH_INDEX"]
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     path = "/" + index
     # read the mappings from stdin
     mappings = json.loads(sys.stdin.read())
@@ -504,23 +524,24 @@ def mappings_command(options, args):
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
-        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["server"] = get_server_name(options)[1]
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
 
 
 def drop_command(options, args):
-    if options.configuration["ELASTICSEARCH_INDEX"] is None:
-        raise ValueError("Missing index")
-    index = options.configuration["ELASTICSEARCH_INDEX"]
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     path = "/" + index
     try:
         r = es_request("delete", options, path)
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
-        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["server"] = get_server_name(options)[1]
         x["index"] = index
         print(jsonify(x))
     except Exception as e:
@@ -528,16 +549,17 @@ def drop_command(options, args):
 
 
 def create_command(options, args):
-    if options.configuration["ELASTICSEARCH_INDEX"] is None:
-        raise ValueError("Missing index")
-    index = options.configuration["ELASTICSEARCH_INDEX"]
+    found, index = get_index_name(options)
+    if not found:
+        print(jsonify({"ok": False, "error": "No index specified"}))
+        return
     path = "/" + index
     try:
         r = es_request("put", options, path)
         x = r.json()
         x["ok"] = r.ok
         x["status"] = r.status_code
-        x["server"] = options.configuration["ELASTICSEARCH_SERVER"]
+        x["server"] = get_server_name(options)[1]
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
@@ -589,7 +611,10 @@ def configure(options):
 
 
 def es_request(request_type, options, path, data=None):
-    url = options.configuration["ELASTICSEARCH_SERVER"] + path
+    ok, server = get_server_name(options)
+    if not ok:
+        raise ValueError("No server specified")
+    url = server + path
     headers = {}
     if options.configuration["ELASTICSEARCH_API_KEY"] is not None:
         headers["Authorization"] = (
@@ -743,6 +768,62 @@ def successfully_updated_items(items):
 
     """
     return successfully_indexed_items(items, "update")
+
+# Some configuration functions
+
+
+def get_index_name(options):
+    """
+    Returns the Elasticsearch index name from the command-line options.
+
+    Args:
+        options (argparse.Namespace): The command-line options.
+
+    Returns:
+        tuple: A tuple containing a boolean indicating if the index name is present, and the index name or an error message.
+
+    Raises:
+        None
+
+    Examples:
+        To get the Elasticsearch index name:
+        >>> success, index = get_index_name(options)
+        >>> if success:
+        ...     print("Elasticsearch index name:", index)
+        ... else:
+        ...     print("Index name was not specified")
+
+    """
+    if options.configuration["ELASTICSEARCH_INDEX"] is None:
+        return (False, None)
+    return (True, options.configuration["ELASTICSEARCH_INDEX"])
+
+
+def get_server_name(options):
+    """
+    Returns the Elasticsearch server name from the command-line options.
+
+    Args:
+        options (argparse.Namespace): The command-line options.
+
+    Returns:
+        tuple: A tuple containing a boolean indicating if the server name is present, and the server name or an error message.
+
+    Raises:
+        None
+
+    Examples:
+        To get the Elasticsearch server name:
+        >>> success, server = get_server_name(options)
+        >>> if success:
+        ...     print("Elasticsearch server name:", server)
+        ... else:
+        ...     print("Server name was not specified")
+
+    """
+    if options.configuration["ELASTICSEARCH_SERVER"] is None:
+        return (False, None)
+    return (True, options.configuration["ELASTICSEARCH_SERVER"])
 
 
 if __name__ == "__main__":
