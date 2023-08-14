@@ -275,11 +275,7 @@ def ping_command(options, args):
 
     """
     try:
-        r = es_get_request(options, "/")
-        x = r.json()
-        x["ok"] = r.ok
-        x["status"] = r.status_code
-        x["server"] = get_server_name(options)[1]
+        x = es_get_request(options, "/")
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
