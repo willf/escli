@@ -138,6 +138,13 @@ def main():
         default=None,
         help="key of the document to use as the document ID",
     )
+    add_parser.add_argument(
+        "--dryrun",
+        action="store_true",
+        dest="dryrun",
+        default=False,
+        help="dry run (don't actually add documents)",
+    )
 
     delete_parser = subparsers.add_parser(
         "delete", help="delete documents from the Elasticsearch index"
@@ -345,6 +352,10 @@ def add_command(options, args):
                 docs.append(doc)
             except Exception as e:
                 print(jsonify({"ok": False, "error": str(e)}))
+        if options.dryrun:
+            data = "\n".join([jsonify(d) for d in docs]) + "\n"
+            print(data)
+            continue
         try:
             x = es_request(
                 "post",
@@ -354,6 +365,7 @@ def add_command(options, args):
             )
             items = x["items"]
             x["items_added"] = len(successfully_added_items(items))
+            x["items_with_error"] = items_with_errors(items)
             del x["items"]
             print(jsonify(x))
         except Exception as e:
@@ -484,17 +496,14 @@ def mappings_command(options, args):
     if not found:
         print(jsonify({"ok": False, "error": "No index specified"}))
         return
-    path = "/" + index
+    path = "/" + index + "/_mapping"
     # read the mappings from stdin
-    mappings = json.loads(sys.stdin.read())
+    properties = json.loads(sys.stdin.read())
     # does it have a 'mappings' key?
-    if "mappings" not in mappings:
-        mappings = {"mappings": mappings}
-    # does it have a 'properties' key in the 'mappings' key?
-    if "properties" not in mappings["mappings"]:
-        raise ValueError('Missing "properties" key in "mappings"')
+    if "mappings" in properties:
+        properties = properties["mappings"]
     try:
-        x = es_request("put", options, path, data=jsonify(mappings))
+        x = es_request("put", options, path, data=jsonify(properties))
         print(jsonify(x))
     except Exception as e:
         print(jsonify({"ok": False, "error": str(e)}))
@@ -608,9 +617,9 @@ def es_request_low_level(request_type, options, path, data):
     if request_type == "post":
         return requests.post(url, headers=headers, data=data, verify=False)
     if request_type == "put":
-        return requests.put(url, headers=headers, verify=False)
+        return requests.put(url, headers=headers, data=data, verify=False)
     if request_type == "delete":
-        return requests.delete(url, headers=headers, verify=False)
+        return requests.delete(url, headers=headers, data=data, verify=False)
     raise ValueError("Invalid request type: %s" % request_type)
 
 
@@ -682,6 +691,28 @@ def hits_hits(obj):
         if "hits" in obj["hits"]:
             return obj["hits"]["hits"]
     return obj
+
+
+def items_with_errors(items):
+    """
+    Filters a list of Elasticsearch response objects to include only those that have errors.
+
+    Args:
+        items (list): The list of Elasticsearch response objects.
+
+    Returns:
+        list: The list of objects with errors.
+
+    """
+    def item_has_error(item):
+        if "index" in item:
+            return "error" in item["index"]
+        if "delete" in item:
+            return "error" in item["delete"]
+        if "update" in item:
+            return "error" in item["update"]
+        return False
+    return [i for i in items if item_has_error(i)]
 
 
 def successfully_indexed_items(items, key):
