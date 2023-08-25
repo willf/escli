@@ -7,13 +7,14 @@
 # Usage:
 # escli [options] <command> [command-options]
 #
-# Commands:
+# Commands:cat
 #   ping        Ping the cluster
 #   search      Search for documents in the cluster
 #   get         Get a document by id
 #   add         Index documents
 #   delete      Delete documents
 #   update      Update documents
+#   bulk        Bulk actions
 #   count       Count documents
 #   mlt         More Like This
 #   mappings    Add mappings to the index
@@ -21,6 +22,7 @@
 #   create      Create an index
 
 import argparse
+import base64
 import json
 import os
 import select
@@ -191,6 +193,19 @@ def main():
         help="upsert documents",
     )
 
+    bulk_parser = subparsers.add_parser(
+        "bulk", help="bulk actions (must include instructions and documents)"
+    )
+
+    bulk_parser.add_argument(
+        "-b",
+        "--batchsize",
+        type=int,
+        dest="batchsize",
+        default=200,
+        help="Default batch size for bulk acgtions",
+    )
+
     subparsers.add_parser(
         "count", help="count the number of documents in the Elasticsearch index"
     )
@@ -247,6 +262,8 @@ def main():
         delete_command(args, remaining)
     elif args.command == "update":
         update_command(args, remaining)
+    elif args.command == "bulk":
+        bulk_command(args, remaining)
     elif args.command == "count":
         count_command(args, remaining)
     elif args.command == "mlt":
@@ -366,6 +383,7 @@ def add_command(options, args):
             items = x["items"]
             x["items_added"] = len(successfully_added_items(items))
             x["items_with_error"] = items_with_errors(items)
+            x["units"] = "ms"
             del x["items"]
             print(jsonify(x))
         except Exception as e:
@@ -441,6 +459,26 @@ def update_command(options, args):
         except Exception as e:
             print(jsonify({"ok": False, "error": str(e)}))
 
+
+def bulk_command(options, args):
+    for batch in read_input_in_batches(options.batchsize):
+        docs = []
+        for line in batch:
+            try:
+                doc = json.loads(line)
+                docs.append(doc)
+            except Exception as e:
+                print(jsonify({"ok": False, "error": str(e)}))
+        try:
+            x = es_request(
+                "post",
+                options,
+                "/_bulk",
+                data="\n".join([jsonify(d) for d in docs]) + "\n",
+            )
+            print(jsonify(x))
+        except Exception as e:
+            print(jsonify({"ok": False, "error": str(e)}))
 
 def count_command(options, args):
     # accounts/_count
@@ -589,6 +627,12 @@ def es_request(request_type, options, path, data=None):
     x["server"] = get_server_name(options)[1]
     return x
 
+def create_base64_auth_header(username, password):
+    auth_string = "{}:{}".format(username, password)
+    auth_bytes = auth_string.encode("ascii")
+    base64_bytes = base64.b64encode(auth_bytes)
+    base64_string = base64_bytes.decode("ascii")
+    return "Basic {}".format(base64_string)
 
 def es_request_low_level(request_type, options, path, data):
     ok, server = get_server_name(options)
@@ -596,18 +640,15 @@ def es_request_low_level(request_type, options, path, data):
         raise ValueError("No server specified")
     url = server + path
     headers = {}
-    if options.configuration["ELASTICSEARCH_API_KEY"] is not None:
+    if options.configuration.get("ELASTICSEARCH_API_KEY") is not None:
         headers["Authorization"] = (
             "ApiKey " + options.configuration["ELASTICSEARCH_API_KEY"]
         )
-    elif options.configuration["ELASTICSEARCH_USER"] is not None:
-        headers["Authorization"] = (
-            "Basic "
-            + options.configuration["ELASTICSEARCH_USER"]
-            + ":"
-            + options.configuration["ELASTICSEARCH_PASSWORD"]
-        )
-    if options.configuration["ELASTICSEARCH_CERTIFICATE_FINGERPRINT"] is not None:
+    elif options.configuration.get("ELASTICSEARCH_USER") is not None and options.configuration.get("ELASTICSEARCH_PASSWORD") is not None:
+        username = options.configuration["ELASTICSEARCH_USER"]
+        password = options.configuration["ELASTICSEARCH_PASSWORD"]
+        headers["Authorization"] = create_base64_auth_header(username, password)
+    if options.configuration.get("ELASTICSEARCH_CERTIFICATE_FINGERPRINT") is not None:
         headers["X-SSL-CERTIFICATE-FINGERPRINT"] = options.configuration[
             "ELASTICSEARCH_CERTIFICATE_FINGERPRINT"
         ]
